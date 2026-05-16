@@ -4,10 +4,15 @@ import type { DayRecord } from "../types";
 import { isFutureDateString } from "../utils/dateUtils";
 
 function finalizeRecord(record: DayRecord): DayRecord {
+  const dailyCheckins = isFutureDateString(record.date)
+    ? record.dailyCheckins.map((item) => ({ ...item, completed: false }))
+    : record.dailyCheckins;
+  const dailyCheckinDone = dailyCheckins.some((item) => item.completed);
+
   if (isFutureDateString(record.date)) {
-    return { ...record, rating: null, dailyCheckinDone: false };
+    return { ...record, rating: null, dailyCheckinDone, dailyCheckins };
   }
-  return record;
+  return { ...record, dailyCheckinDone, dailyCheckins };
 }
 
 export interface DayRecordEditor {
@@ -24,7 +29,10 @@ export interface DayRecordEditor {
   setRating: (rating: number) => void;
   setNote: (note: string) => void;
   setMood: (moodId: string) => void;
-  setDailyCheckinDone: (done: boolean) => void;
+  addDailyCheckin: (title: string) => void;
+  toggleDailyCheckin: (id: string) => void;
+  updateDailyCheckinTitle: (id: string, title: string) => void;
+  deleteDailyCheckin: (id: string) => void;
 }
 
 export function useDayRecordEditor(date: string | null): DayRecordEditor {
@@ -217,8 +225,55 @@ export function useDayRecordEditor(date: string | null): DayRecordEditor {
     updateRecord((current) => ({ ...current, moodId }));
   };
 
-  const setDailyCheckinDone = (done: boolean): void => {
-    updateRecord((current) => ({ ...current, dailyCheckinDone: done }));
+  const addDailyCheckin = (title: string): void => {
+    const trimmedTitle = title.trim();
+    if (trimmedTitle === "") {
+      return;
+    }
+    updateRecord((current) => ({
+      ...current,
+      dailyCheckins: [
+        ...current.dailyCheckins,
+        {
+          id: crypto.randomUUID(),
+          title: trimmedTitle,
+          completed: false,
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    }));
+  };
+
+  const toggleDailyCheckin = (id: string): void => {
+    if (date === null || isFutureDateString(date)) {
+      return;
+    }
+    updateRecord((current) => ({
+      ...current,
+      dailyCheckins: current.dailyCheckins.map((item) =>
+        item.id === id ? { ...item, completed: !item.completed } : item,
+      ),
+    }));
+  };
+
+  const updateDailyCheckinTitle = (id: string, title: string): void => {
+    const trimmedTitle = title.trim();
+    if (trimmedTitle === "") {
+      return;
+    }
+    updateRecord((current) => ({
+      ...current,
+      dailyCheckins: current.dailyCheckins.map((item) =>
+        item.id === id ? { ...item, title: trimmedTitle } : item,
+      ),
+    }));
+  };
+
+  const deleteDailyCheckin = (id: string): void => {
+    updateRecord((current) => ({
+      ...current,
+      dailyCheckins: current.dailyCheckins.filter((item) => item.id !== id),
+    }));
   };
 
   return {
@@ -235,6 +290,9 @@ export function useDayRecordEditor(date: string | null): DayRecordEditor {
     setRating,
     setNote,
     setMood,
-    setDailyCheckinDone,
+    addDailyCheckin,
+    toggleDailyCheckin,
+    updateDailyCheckinTitle,
+    deleteDailyCheckin,
   };
 }

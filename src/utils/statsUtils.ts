@@ -5,7 +5,7 @@ import { addCalendarDays, getTodayString } from "./dateUtils";
  * 「打卡」判定：以当下页独立打卡按钮为准，避免任务或备注被误算为打卡。
  */
 export function isCheckinRecord(record: DayRecord): boolean {
-  return record.dailyCheckinDone === true;
+  return record.dailyCheckinDone === true || record.dailyCheckins.some((item) => item.completed);
 }
 
 /**

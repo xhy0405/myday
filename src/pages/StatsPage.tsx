@@ -43,8 +43,8 @@ interface DailyChartRow {
   rating: number | null;
   /** 任务完成率 0～100；无任务时为 0（柱高为 0） */
   completionRate: number;
-  /** 是否完成当日打卡，图表中用 0 / 1 表示 */
-  checkin: number;
+  /** 当日完成的打卡项目数 */
+  checkinCount: number;
 }
 
 /**
@@ -107,7 +107,16 @@ const StatsPage: FC = () => {
   }, [dataRevision]);
 
   /** 一次读 localStorage 并派生图表数据与汇总，避免 getAllRecords 引用每次变化导致 memo 失效 */
-  const { chartRows, averageRating, totalCompletedTasks, checkinDays, checkinRate, currentStreak, longestStreak } =
+  const {
+    chartRows,
+    averageRating,
+    totalCompletedTasks,
+    checkinDays,
+    checkinRate,
+    totalCompletedCheckins,
+    currentStreak,
+    longestStreak,
+  } =
     useMemo(() => {
       const rows: DailyChartRow[] = datesWindow.map((ds) => {
         const r = allRecords[ds];
@@ -118,11 +127,12 @@ const StatsPage: FC = () => {
             label,
             rating: null,
             completionRate: 0,
-            checkin: 0,
+            checkinCount: 0,
           };
         }
         const total = r.tasks.length;
         const completed = r.tasks.filter((t) => t.completed).length;
+        const completedCheckins = r.dailyCheckins.filter((item) => item.completed).length;
         const completionRate =
           total === 0 ? 0 : Math.round((completed / total) * 100);
         return {
@@ -130,7 +140,7 @@ const StatsPage: FC = () => {
           label,
           rating: r.rating,
           completionRate,
-          checkin: r.dailyCheckinDone ? 1 : 0,
+          checkinCount: completedCheckins,
         };
       });
 
@@ -138,6 +148,7 @@ const StatsPage: FC = () => {
       let ratingCount = 0;
       let completedTotal = 0;
       let checkinTotal = 0;
+      let completedCheckinTotal = 0;
 
       for (const ds of datesWindow) {
         const r = allRecords[ds];
@@ -149,7 +160,9 @@ const StatsPage: FC = () => {
           ratingCount += 1;
         }
         completedTotal += r.tasks.filter((t) => t.completed).length;
-        if (r.dailyCheckinDone) {
+        const completedCheckins = r.dailyCheckins.filter((item) => item.completed).length;
+        completedCheckinTotal += completedCheckins;
+        if (completedCheckins > 0 || r.dailyCheckinDone) {
           checkinTotal += 1;
         }
       }
@@ -165,6 +178,7 @@ const StatsPage: FC = () => {
         totalCompletedTasks: completedTotal,
         checkinDays: checkinTotal,
         checkinRate: datesWindow.length === 0 ? 0 : Math.round((checkinTotal / datesWindow.length) * 100),
+        totalCompletedCheckins: completedCheckinTotal,
         currentStreak: computeCurrentCheckinStreak(allRecords),
         longestStreak: computeLongestCheckinStreak(allRecords),
       };
@@ -231,7 +245,7 @@ const StatsPage: FC = () => {
           <div className="mobile-metric-tile">
             <CalendarCheck className="h-4 w-4 text-emerald-600" aria-hidden />
             <span>打卡</span>
-            <strong>{checkinDays}</strong>
+            <strong>{totalCompletedCheckins}</strong>
           </div>
           <div className="mobile-metric-tile">
             <CircleCheck className="h-4 w-4 text-emerald-600" aria-hidden />
@@ -349,21 +363,19 @@ const StatsPage: FC = () => {
                   <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="#e2e8f0" />
                   <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#64748b" }} interval={xAxisInterval} />
                   <YAxis
-                    domain={[0, 1]}
-                    ticks={[0, 1]}
+                    allowDecimals={false}
                     tick={{ fontSize: 10, fill: "#64748b" }}
                     width={32}
-                    tickFormatter={(v) => (v === 1 ? "已打卡" : "未打卡")}
                   />
                   <Tooltip
                     contentStyle={tooltipStyle}
-                    formatter={(value) => [Number(value) === 1 ? "已打卡" : "未打卡", "打卡"]}
+                    formatter={(value) => [`${String(value)} 项`, "完成打卡"]}
                     labelFormatter={(_, payload) => {
                       const row = payload?.[0]?.payload as DailyChartRow | undefined;
                       return row ? `日期 ${row.date}` : "";
                     }}
                   />
-                  <Bar dataKey="checkin" fill="#10b981" radius={[6, 6, 0, 0]} />
+                  <Bar dataKey="checkinCount" fill="#10b981" radius={[6, 6, 0, 0]} />
                 </BarChart>
               )}
             </ResponsiveContainer>
@@ -481,7 +493,9 @@ const StatsPage: FC = () => {
             </span>
             <span className="text-lg font-medium text-slate-400">天</span>
           </div>
-          <p className="mt-3 text-sm text-slate-400">{rangeLabel}打卡率 {checkinRate}%</p>
+          <p className="mt-3 text-sm text-slate-400">
+            {rangeLabel}打卡率 {checkinRate}%，共完成 {totalCompletedCheckins} 项
+          </p>
         </div>
 
         <div className="metric-card panel-glow">
@@ -622,7 +636,7 @@ const StatsPage: FC = () => {
 
         <section className="panel panel-glow-cool panel-interactive lg:col-span-2">
           <h2 className="section-title">
-            {rangeLabel} · 每日打卡记录
+            {rangeLabel} · 每日完成打卡项目
           </h2>
           <div className="mt-6 h-64 w-full sm:h-72">
             <ResponsiveContainer width="100%" height="100%">
@@ -638,21 +652,19 @@ const StatsPage: FC = () => {
                   interval={xAxisInterval}
                 />
                 <YAxis
-                  domain={[0, 1]}
-                  ticks={[0, 1]}
+                  allowDecimals={false}
                   tick={{ fontSize: 10, fill: "#64748b" }}
                   width={48}
-                  tickFormatter={(v) => (v === 1 ? "已打卡" : "未打卡")}
                 />
                 <Tooltip
                   contentStyle={tooltipStyle}
-                  formatter={(value) => [Number(value) === 1 ? "已打卡" : "未打卡", "打卡"]}
+                  formatter={(value) => [`${String(value)} 项`, "完成打卡"]}
                   labelFormatter={(_, payload) => {
                     const row = payload?.[0]?.payload as DailyChartRow | undefined;
                     return row ? `日期 ${row.date}` : "";
                   }}
                 />
-                <Bar dataKey="checkin" fill="#10b981" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="checkinCount" fill="#10b981" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>

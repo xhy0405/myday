@@ -17,6 +17,7 @@ function createEmptyRecord(date: string): DayRecord {
     note: "",
     moodId: null,
     dailyCheckinDone: false,
+    dailyCheckins: [],
   };
 }
 
@@ -29,6 +30,47 @@ function normalizeRating(value: unknown): number | null {
     return null;
   }
   return value >= 1 && value <= 10 ? value : null;
+}
+
+function normalizeDailyCheckins(value: unknown, legacyDone: boolean): DayRecord["dailyCheckins"] {
+  if (!Array.isArray(value)) {
+    return legacyDone
+      ? [
+          {
+            id: crypto.randomUUID(),
+            title: "每日打卡",
+            completed: true,
+            createdAt: new Date().toISOString(),
+          },
+        ]
+      : [];
+  }
+
+  return value.flatMap((checkinValue) => {
+    if (!isPlainObject(checkinValue) || typeof checkinValue.title !== "string") {
+      return [];
+    }
+
+    const title = checkinValue.title.trim();
+    if (title === "") {
+      return [];
+    }
+
+    return [
+      {
+        id:
+          typeof checkinValue.id === "string" && checkinValue.id.trim() !== ""
+            ? checkinValue.id
+            : crypto.randomUUID(),
+        title,
+        completed: checkinValue.completed === true,
+        createdAt:
+          typeof checkinValue.createdAt === "string"
+            ? checkinValue.createdAt
+            : new Date().toISOString(),
+      },
+    ];
+  });
 }
 
 function normalizeRecord(dateKey: string, value: unknown): DayRecord | null {
@@ -74,6 +116,9 @@ function normalizeRecord(dateKey: string, value: unknown): DayRecord | null {
       )
     : [];
 
+  const legacyDailyCheckinDone = value.dailyCheckinDone === true;
+  const dailyCheckins = normalizeDailyCheckins(value.dailyCheckins, legacyDailyCheckinDone);
+
   return {
     date: dateKey,
     tasks,
@@ -81,7 +126,8 @@ function normalizeRecord(dateKey: string, value: unknown): DayRecord | null {
     rating: normalizeRating(value.rating),
     note: typeof value.note === "string" ? value.note : "",
     moodId: typeof value.moodId === "string" ? value.moodId : null,
-    dailyCheckinDone: value.dailyCheckinDone === true,
+    dailyCheckinDone: legacyDailyCheckinDone || dailyCheckins.some((item) => item.completed),
+    dailyCheckins,
   };
 }
 
@@ -151,7 +197,10 @@ async function readAllRecordsFromIndexedDb(): Promise<Record<string, DayRecord>>
     const records = await requestToPromise<DayRecord[]>(store.getAll());
 
     return records.reduce<Record<string, DayRecord>>((acc, record) => {
-      acc[record.date] = record;
+      const normalized = normalizeRecord(record.date, record);
+      if (normalized !== null) {
+        acc[normalized.date] = normalized;
+      }
       return acc;
     }, {});
   } finally {

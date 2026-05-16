@@ -19,6 +19,18 @@ export interface Task {
   carryoverFromTaskId?: string;
 }
 
+/** 单个每日打卡项目 */
+export interface DailyCheckin {
+  /** 唯一标识，使用 crypto.randomUUID() 生成 */
+  id: string;
+  /** 打卡内容，如“学英语” */
+  title: string;
+  /** 当天是否完成 */
+  completed: boolean;
+  /** 创建时间的 ISO 字符串 */
+  createdAt: string;
+}
+
 /** 每日记录（以 date 为主键的一条「当天快照」） */
 export interface DayRecord {
   /** 日期字符串，格式为 "YYYY-MM-DD"，作为唯一主键 */
@@ -35,6 +47,8 @@ export interface DayRecord {
   moodId: string | null;
   /** 当日是否完成打卡 */
   dailyCheckinDone: boolean;
+  /** 当天的自定义打卡项目 */
+  dailyCheckins: DailyCheckin[];
 }
 
 /**

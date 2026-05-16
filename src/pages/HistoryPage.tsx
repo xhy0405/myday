@@ -2,9 +2,9 @@ import { type FC, useEffect, useMemo, useState } from "react";
 import {
   CalendarDays,
   CalendarRange,
+  CalendarCheck,
   ChevronLeft,
   ChevronRight,
-  CircleCheck,
   ListChecks,
   NotebookText,
   Pencil,
@@ -25,6 +25,7 @@ import TaskList from "../components/TaskList";
 import MoodPicker from "../components/MoodPicker";
 import { getMoodById } from "../data/moods";
 import MobileBottomSheet from "../components/MobileBottomSheet";
+import DailyCheckinList from "../components/DailyCheckinList";
 
 const WEEKDAY_HEADERS: readonly string[] = ["一", "二", "三", "四", "五", "六", "日"];
 
@@ -80,6 +81,7 @@ function hasSavedContent(record: DayRecord | undefined): boolean {
   }
   return (
     record.dailyCheckinDone ||
+    record.dailyCheckins.length > 0 ||
     record.tasks.length > 0 ||
     record.rating !== null ||
     record.note.trim() !== "" ||
@@ -109,7 +111,10 @@ const HistoryPage: FC = () => {
     setRating,
     setNote,
     setMood,
-    setDailyCheckinDone,
+    addDailyCheckin,
+    toggleDailyCheckin,
+    updateDailyCheckinTitle,
+    deleteDailyCheckin,
   } = useDayRecordEditor(selectedDateStr);
 
   const year = viewMonth.getFullYear();
@@ -149,8 +154,8 @@ const HistoryPage: FC = () => {
     selectedDateStr !== null && isFutureDateString(selectedDateStr);
   const taskTotal = displayRecord?.tasks.length ?? 0;
   const taskCompleted = displayRecord?.tasks.filter((t) => t.completed).length ?? 0;
-  const checkinDone = displayRecord?.dailyCheckinDone === true;
-  const canCheckinSelectedDate = selectedDateStr !== null && !isSelectedFuture;
+  const checkinTotal = displayRecord?.dailyCheckins.length ?? 0;
+  const checkinCompleted = displayRecord?.dailyCheckins.filter((item) => item.completed).length ?? 0;
 
   const handlePrevMonth = (): void => {
     setViewMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
@@ -172,7 +177,10 @@ const HistoryPage: FC = () => {
       return count;
     }
     const monthRecord = allRecords[formatDateString(year, monthIndex, day)];
-    return monthRecord?.dailyCheckinDone === true ? count + 1 : count;
+    return monthRecord?.dailyCheckinDone === true ||
+      monthRecord?.dailyCheckins.some((item) => item.completed) === true
+      ? count + 1
+      : count;
   }, 0);
 
   const dateEditor = displayRecord ? (
@@ -185,32 +193,35 @@ const HistoryPage: FC = () => {
             </h2>
             <p className="mt-2 text-sm text-slate-500">
               {selectedDateStr !== null && selectedDateStr in allRecords
-                ? `已完成 ${taskCompleted} / ${taskTotal} 项任务`
+                ? `打卡 ${checkinCompleted} / ${checkinTotal} 项，任务 ${taskCompleted} / ${taskTotal} 项`
                 : "这一天还没有保存过内容。"}
             </p>
           </div>
-          <button
-            type="button"
-            className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm transition-all duration-300 active:scale-[0.98] ${
-              checkinDone
-                ? "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100"
-                : canCheckinSelectedDate
-                  ? "bg-cyan-50 text-[#0b8f99] ring-1 ring-cyan-100 hover:bg-cyan-100/70"
-                  : "bg-slate-50 text-slate-400 ring-1 ring-slate-200"
-            }`}
-            onClick={() => {
-              if (canCheckinSelectedDate) {
-                setDailyCheckinDone(!checkinDone);
-              }
-            }}
-            disabled={!canCheckinSelectedDate}
-            aria-pressed={checkinDone}
-          >
-            <CircleCheck className="h-5 w-5" aria-hidden />
-            {checkinDone ? "已打卡" : isSelectedFuture ? "未来日期暂不打卡" : "完成打卡"}
-          </button>
         </div>
       </div>
+
+      <section className="panel panel-glow-cool panel-interactive overflow-visible">
+        <div className="flex items-start gap-3">
+          <div className="icon-tile">
+            <CalendarCheck className="h-5 w-5" aria-hidden />
+          </div>
+          <div className="min-w-0">
+            <h3 className="section-title">打卡内容</h3>
+            <p className="section-copy">添加并勾选这一天坚持过的内容，比如学英语。</p>
+          </div>
+        </div>
+        <div className="mt-5">
+          <DailyCheckinList
+            items={displayRecord.dailyCheckins}
+            onAdd={addDailyCheckin}
+            onToggle={toggleDailyCheckin}
+            onUpdateTitle={updateDailyCheckinTitle}
+            onDelete={deleteDailyCheckin}
+            emptyText="这一天还没有打卡内容。可以添加“学英语”“背单词”等项目。"
+            completionReadOnly={isSelectedFuture}
+          />
+        </div>
+      </section>
 
       <section className="panel panel-glow panel-interactive overflow-visible">
         <div className="flex items-start gap-3">
@@ -366,7 +377,7 @@ const HistoryPage: FC = () => {
             </div>
 
             <div className="flex items-center gap-2 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">
-              <CircleCheck className="h-5 w-5" aria-hidden />
+              <CalendarCheck className="h-5 w-5" aria-hidden />
               本月打卡 {monthCheckinCount} 天
             </div>
           </div>
@@ -388,7 +399,9 @@ const HistoryPage: FC = () => {
               const dateStr = formatDateString(year, monthIndex, day);
               const monthRecord = allRecords[dateStr];
               const stored = hasSavedContent(monthRecord);
-              const checkedIn = monthRecord?.dailyCheckinDone === true;
+              const checkedIn =
+                monthRecord?.dailyCheckinDone === true ||
+                monthRecord?.dailyCheckins.some((item) => item.completed) === true;
               const moodOption = monthRecord?.moodId ? getMoodById(monthRecord.moodId) : undefined;
               const isToday = dateStr === todayStr;
               const isSelected = selectedDateStr === dateStr;
@@ -411,7 +424,7 @@ const HistoryPage: FC = () => {
                     {day}
                   </span>
                   {checkedIn ? (
-                    <CircleCheck className="h-4 w-4" aria-hidden />
+                    <CalendarCheck className="h-4 w-4" aria-hidden />
                   ) : stored && moodOption ? (
                     <span className="text-base leading-none" aria-hidden title={moodOption.label}>
                       {moodOption.emoji}
@@ -455,7 +468,7 @@ const HistoryPage: FC = () => {
         title={selectedDateStr === null ? "日期详情" : formatDisplayDate(selectedDateStr)}
         description={
           displayRecord
-            ? `已完成 ${taskCompleted} / ${taskTotal} 项任务`
+            ? `打卡 ${checkinCompleted} / ${checkinTotal} 项，任务 ${taskCompleted} / ${taskTotal} 项`
             : "选择日期后查看当天记录"
         }
         onClose={() => setMobileDetailOpen(false)}
@@ -466,26 +479,21 @@ const HistoryPage: FC = () => {
           </p>
         ) : (
           <div className="space-y-5">
-            <button
-              type="button"
-              className={`flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold shadow-sm ${
-                checkinDone
-                  ? "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100"
-                  : canCheckinSelectedDate
-                    ? "bg-cyan-50 text-[#0b8f99] ring-1 ring-cyan-100"
-                    : "bg-slate-50 text-slate-400 ring-1 ring-slate-200"
-              }`}
-              onClick={() => {
-                if (canCheckinSelectedDate) {
-                  setDailyCheckinDone(!checkinDone);
-                }
-              }}
-              disabled={!canCheckinSelectedDate}
-              aria-pressed={checkinDone}
-            >
-              <CircleCheck className="h-5 w-5" aria-hidden />
-              {checkinDone ? "已打卡" : isSelectedFuture ? "未来日期暂不打卡" : "完成打卡"}
-            </button>
+            <section>
+              <div className="mb-3 flex items-center gap-2">
+                <CalendarCheck className="h-5 w-5 text-[#0b8f99]" aria-hidden />
+                <h3 className="text-base font-semibold text-slate-950">打卡内容</h3>
+              </div>
+              <DailyCheckinList
+                items={displayRecord.dailyCheckins}
+                onAdd={addDailyCheckin}
+                onToggle={toggleDailyCheckin}
+                onUpdateTitle={updateDailyCheckinTitle}
+                onDelete={deleteDailyCheckin}
+                emptyText="这一天还没有打卡内容。可以添加“学英语”“背单词”等项目。"
+                completionReadOnly={isSelectedFuture}
+              />
+            </section>
 
             <section className="rounded-2xl border border-slate-200/70 bg-slate-50/80 p-4">
               <div className="flex items-center gap-3">
