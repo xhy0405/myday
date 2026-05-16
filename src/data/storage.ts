@@ -16,6 +16,7 @@ function createEmptyRecord(date: string): DayRecord {
     rating: null,
     note: "",
     moodId: null,
+    dailyCheckinDone: false,
   };
 }
 
@@ -80,6 +81,7 @@ function normalizeRecord(dateKey: string, value: unknown): DayRecord | null {
     rating: normalizeRating(value.rating),
     note: typeof value.note === "string" ? value.note : "",
     moodId: typeof value.moodId === "string" ? value.moodId : null,
+    dailyCheckinDone: value.dailyCheckinDone === true,
   };
 }
 

@@ -1,6 +1,7 @@
 import { type FC, useMemo, useState } from "react";
 import {
   CalendarClock,
+  CircleCheck,
   ListChecks,
   NotebookText,
   SmilePlus,
@@ -55,6 +56,7 @@ const NowPage: FC = () => {
     setRating,
     setNote,
     setMood,
+    setDailyCheckinDone,
   } = useDayRecordEditor(activeDateStr);
 
   const isPlanningTomorrow = isFutureDateString(activeDateStr);
@@ -80,6 +82,10 @@ const NowPage: FC = () => {
       notePlaceholder: "写下昨天值得补充的内容",
       taskEmptyText: "昨天还没有留下任务。可以补上一件已经完成或想复盘的事。",
       footer: "昨天的线索已归位",
+      checkinTitle: "昨日打卡",
+      checkinBody: "补上昨天是否完成了这一天的核心记录。",
+      checkinDone: "昨天已打卡",
+      checkinPending: "补上昨天的打卡",
     },
     today: {
       eyebrow: "Today workspace",
@@ -95,6 +101,10 @@ const NowPage: FC = () => {
       notePlaceholder: "写下今天想留下的内容",
       taskEmptyText: "今天还没有任务。可以先添加一件最想推进的小事。",
       footer: "今天的工作台已就绪",
+      checkinTitle: "今日打卡",
+      checkinBody: "完成今天的状态、任务或记录后，给这一天按下确认。",
+      checkinDone: "今天已打卡",
+      checkinPending: "完成今日打卡",
     },
     tomorrow: {
       eyebrow: "Tomorrow plan",
@@ -110,6 +120,10 @@ const NowPage: FC = () => {
       notePlaceholder: "写下明天需要提醒自己的事",
       taskEmptyText: "明天还没有计划。可以先放进一件确定要做的事。",
       footer: "明天的入口已轻轻打开",
+      checkinTitle: "明日打卡",
+      checkinBody: "明天还没有开始，打卡会留到当天再完成。",
+      checkinDone: "明天已打卡",
+      checkinPending: "明天再打卡",
     },
   }[focus];
 
@@ -120,6 +134,8 @@ const NowPage: FC = () => {
   const completedTaskCount = record?.tasks.filter((task) => task.completed).length ?? 0;
   const selectedMood = getMoodById(record?.moodId ?? null);
   const moodLabel = selectedMood ? selectedMood.label : "未选择";
+  const checkinDone = record?.dailyCheckinDone === true;
+  const canCheckin = !isPlanningTomorrow;
 
   return (
     <main className="page-shell">
@@ -196,6 +212,39 @@ const NowPage: FC = () => {
               </strong>
             </button>
           </div>
+
+          <button
+            type="button"
+            className={`mt-3 flex w-full items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left shadow-sm transition-all duration-300 active:scale-[0.98] ${
+              checkinDone
+                ? "border-emerald-100 bg-emerald-50 text-emerald-800"
+                : canCheckin
+                  ? "border-cyan-100 bg-cyan-50/80 text-slate-900"
+                  : "border-slate-200 bg-slate-50 text-slate-400"
+            }`}
+            onClick={() => {
+              if (canCheckin) {
+                setDailyCheckinDone(!checkinDone);
+              }
+            }}
+            disabled={!canCheckin}
+            aria-pressed={checkinDone}
+          >
+            <span className="flex min-w-0 items-center gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white shadow-sm">
+                <CircleCheck className="h-5 w-5" aria-hidden />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold">{focusCopy.checkinTitle}</span>
+                <span className="mt-0.5 block text-xs leading-5 opacity-75">
+                  {focusCopy.checkinBody}
+                </span>
+              </span>
+            </span>
+            <strong className="shrink-0 text-sm font-bold">
+              {checkinDone ? focusCopy.checkinDone : focusCopy.checkinPending}
+            </strong>
+          </button>
 
           {error !== null ? (
             <p className="mt-3 text-sm font-medium text-rose-600">{error}</p>
@@ -353,6 +402,38 @@ const NowPage: FC = () => {
               </span>
               <span>{focusCopy.footer}</span>
             </div>
+            <button
+              type="button"
+              className={`mt-6 flex w-full items-center justify-between gap-4 rounded-2xl border px-4 py-4 text-left shadow-sm transition-all duration-300 active:scale-[0.98] ${
+                checkinDone
+                  ? "border-emerald-100 bg-emerald-50/95 text-emerald-800 hover:border-emerald-200"
+                  : canCheckin
+                    ? "border-cyan-100 bg-white/80 text-slate-900 hover:border-cyan-200 hover:bg-cyan-50"
+                    : "border-slate-200 bg-white/60 text-slate-400"
+              }`}
+              onClick={() => {
+                if (canCheckin) {
+                  setDailyCheckinDone(!checkinDone);
+                }
+              }}
+              disabled={!canCheckin}
+              aria-pressed={checkinDone}
+            >
+              <span className="flex min-w-0 items-center gap-3">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white shadow-sm">
+                  <CircleCheck className="h-5 w-5" aria-hidden />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-base font-bold">{focusCopy.checkinTitle}</span>
+                  <span className="mt-1 block text-sm leading-5 opacity-75">
+                    {focusCopy.checkinBody}
+                  </span>
+                </span>
+              </span>
+              <span className="shrink-0 rounded-xl bg-white px-3 py-2 text-sm font-bold shadow-sm">
+                {checkinDone ? focusCopy.checkinDone : focusCopy.checkinPending}
+              </span>
+            </button>
           </div>
 
           <div className="grid min-w-0 max-w-full gap-5 p-4 sm:gap-6 sm:p-8 xl:grid-cols-[minmax(0,0.9fr)_minmax(22rem,1.1fr)]">

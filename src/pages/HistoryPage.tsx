@@ -2,30 +2,26 @@ import { type FC, useEffect, useMemo, useState } from "react";
 import {
   CalendarDays,
   CalendarRange,
-  Check,
   ChevronLeft,
   ChevronRight,
-  Circle,
+  CircleCheck,
   ListChecks,
   NotebookText,
   Pencil,
   Sparkles,
 } from "lucide-react";
 import { getAllRecords } from "../data/storage";
-import type { DayRecord, Task } from "../types";
+import type { DayRecord } from "../types";
 import {
   formatDateString,
   formatDisplayDate,
   getTodayString,
   isFutureDateString,
-  isStrictlyBeforeYesterday,
 } from "../utils/dateUtils";
 import { useDayRecordEditor } from "../hooks/useDayRecordEditor";
 import StarRating from "../components/StarRating";
 import DailyNote from "../components/DailyNote";
 import TaskList from "../components/TaskList";
-import ConfirmDialog from "../components/ConfirmDialog";
-import QuoteOfTheDay from "../components/QuoteOfTheDay";
 import MoodPicker from "../components/MoodPicker";
 import { getMoodById } from "../data/moods";
 import MobileBottomSheet from "../components/MobileBottomSheet";
@@ -34,38 +30,31 @@ const WEEKDAY_HEADERS: readonly string[] = ["一", "二", "三", "四", "五", "
 
 function getCalendarDayButtonClass(params: {
   stored: boolean;
-  rating: number | null;
+  checkedIn: boolean;
   isSelected: boolean;
   isToday: boolean;
 }): string {
-  const { stored, rating, isSelected, isToday } = params;
+  const { stored, checkedIn, isSelected, isToday } = params;
   const base =
     "flex min-h-14 flex-col items-center justify-center gap-0.5 rounded-xl border p-1 text-sm transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-cyan-400";
 
   if (isSelected) {
     return `${base} z-10 border-[#10aab2] bg-[#10aab2] text-white shadow-md ring-2 ring-cyan-200`;
   }
-  if (!stored) {
-    return `${base} border-transparent text-slate-500 hover:bg-slate-100`;
+
+  if (checkedIn) {
+    return `${base} border-emerald-100 bg-emerald-50 text-emerald-800 shadow-sm hover:border-emerald-200 hover:bg-emerald-100/70`;
   }
 
-  let heat = "border-slate-200 bg-white shadow-sm hover:bg-slate-50";
-  if (rating !== null) {
-    if (rating <= 4) {
-      heat = "border-rose-100 bg-rose-50 hover:border-rose-200";
-    } else if (rating <= 6) {
-      heat = "border-amber-100 bg-amber-50 hover:border-amber-200";
-    } else if (rating <= 8) {
-      heat = "border-cyan-100 bg-cyan-50 hover:border-cyan-200";
-    } else {
-      heat = "border-cyan-200 bg-cyan-100 hover:bg-cyan-50";
-    }
+  if (stored) {
+    return `${base} border-amber-100 bg-amber-50 text-slate-900 shadow-sm hover:border-amber-200`;
   }
 
   if (isToday) {
-    return `${base} ${heat} ring-1 ring-cyan-300`;
+    return `${base} border-cyan-100 bg-white text-slate-900 ring-1 ring-cyan-300 hover:bg-cyan-50`;
   }
-  return `${base} ${heat} hover:shadow-sm`;
+
+  return `${base} border-transparent text-slate-500 hover:bg-slate-100`;
 }
 
 function buildMonthCells(year: number, monthIndex: number): (number | null)[] {
@@ -85,32 +74,16 @@ function buildMonthCells(year: number, monthIndex: number): (number | null)[] {
   return cells;
 }
 
-function TaskSummaryList({ tasks }: { tasks: Task[] }): JSX.Element {
-  if (tasks.length === 0) {
-    return <p className="panel-muted text-sm leading-6 text-slate-500">这一天没有留下任务。</p>;
+function hasSavedContent(record: DayRecord | undefined): boolean {
+  if (record === undefined) {
+    return false;
   }
-
   return (
-    <ul className="flex flex-col gap-3">
-      {tasks.map((task) => (
-        <li key={task.id} className="soft-list-item flex items-start gap-3 px-4 py-3">
-          <span className="mt-0.5 shrink-0" aria-hidden>
-            {task.completed ? (
-              <Check className="h-5 w-5 text-[#10aab2]" aria-hidden />
-            ) : (
-              <Circle className="h-5 w-5 text-slate-400" aria-hidden />
-            )}
-          </span>
-          <span
-            className={`min-w-0 flex-1 text-base leading-relaxed ${
-              task.completed ? "text-slate-400 line-through" : "text-slate-900"
-            }`}
-          >
-            {task.title}
-          </span>
-        </li>
-      ))}
-    </ul>
+    record.dailyCheckinDone ||
+    record.tasks.length > 0 ||
+    record.rating !== null ||
+    record.note.trim() !== "" ||
+    record.moodId !== null
   );
 }
 
@@ -121,8 +94,6 @@ const HistoryPage: FC = () => {
     return new Date(n.getFullYear(), n.getMonth(), 1);
   });
   const [selectedDateStr, setSelectedDateStr] = useState<string | null>(() => todayStr);
-  const [confirmedOldDateEdits, setConfirmedOldDateEdits] = useState<Record<string, boolean>>({});
-  const [confirmOldEditOpen, setConfirmOldEditOpen] = useState<boolean>(false);
   const [mobileDetailOpen, setMobileDetailOpen] = useState<boolean>(false);
   const [allRecords, setAllRecords] = useState<Record<string, DayRecord>>({});
   const [dataError, setDataError] = useState<string | null>(null);
@@ -138,6 +109,7 @@ const HistoryPage: FC = () => {
     setRating,
     setNote,
     setMood,
+    setDailyCheckinDone,
   } = useDayRecordEditor(selectedDateStr);
 
   const year = viewMonth.getFullYear();
@@ -172,17 +144,13 @@ const HistoryPage: FC = () => {
     }
   }, [record]);
 
-  const needsOldDateConfirm =
-    selectedDateStr !== null &&
-    isStrictlyBeforeYesterday(selectedDateStr) &&
-    confirmedOldDateEdits[selectedDateStr] !== true;
-
   const displayRecord = record;
   const isSelectedFuture =
     selectedDateStr !== null && isFutureDateString(selectedDateStr);
   const taskTotal = displayRecord?.tasks.length ?? 0;
   const taskCompleted = displayRecord?.tasks.filter((t) => t.completed).length ?? 0;
-  const canEditSelectedDate = selectedDateStr !== null && !needsOldDateConfirm;
+  const checkinDone = displayRecord?.dailyCheckinDone === true;
+  const canCheckinSelectedDate = selectedDateStr !== null && !isSelectedFuture;
 
   const handlePrevMonth = (): void => {
     setViewMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
@@ -199,12 +167,137 @@ const HistoryPage: FC = () => {
     setMobileDetailOpen(true);
   };
 
-  const handleConfirmOldEdit = (): void => {
-    if (selectedDateStr !== null) {
-      setConfirmedOldDateEdits((prev) => ({ ...prev, [selectedDateStr]: true }));
+  const monthCheckinCount = cells.reduce((count, day) => {
+    if (day === null) {
+      return count;
     }
-    setConfirmOldEditOpen(false);
-  };
+    const monthRecord = allRecords[formatDateString(year, monthIndex, day)];
+    return monthRecord?.dailyCheckinDone === true ? count + 1 : count;
+  }, 0);
+
+  const dateEditor = displayRecord ? (
+    <section className="space-y-6">
+      <div className="panel">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <h2 className="text-2xl font-bold text-slate-950">
+              {selectedDateStr === null ? "日期详情" : formatDisplayDate(selectedDateStr)}
+            </h2>
+            <p className="mt-2 text-sm text-slate-500">
+              {selectedDateStr !== null && selectedDateStr in allRecords
+                ? `已完成 ${taskCompleted} / ${taskTotal} 项任务`
+                : "这一天还没有保存过内容。"}
+            </p>
+          </div>
+          <button
+            type="button"
+            className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm transition-all duration-300 active:scale-[0.98] ${
+              checkinDone
+                ? "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100"
+                : canCheckinSelectedDate
+                  ? "bg-cyan-50 text-[#0b8f99] ring-1 ring-cyan-100 hover:bg-cyan-100/70"
+                  : "bg-slate-50 text-slate-400 ring-1 ring-slate-200"
+            }`}
+            onClick={() => {
+              if (canCheckinSelectedDate) {
+                setDailyCheckinDone(!checkinDone);
+              }
+            }}
+            disabled={!canCheckinSelectedDate}
+            aria-pressed={checkinDone}
+          >
+            <CircleCheck className="h-5 w-5" aria-hidden />
+            {checkinDone ? "已打卡" : isSelectedFuture ? "未来日期暂不打卡" : "完成打卡"}
+          </button>
+        </div>
+      </div>
+
+      <section className="panel panel-glow panel-interactive overflow-visible">
+        <div className="flex items-start gap-3">
+          <div className="icon-tile">
+            <Sparkles className="h-5 w-5" aria-hidden />
+          </div>
+          <div className="min-w-0">
+            <h3 className="section-title">状态与评分</h3>
+            <p className="section-copy">查看或调整这一天的状态和自评分。</p>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-6 xl:grid-cols-[minmax(0,0.9fr)_minmax(22rem,1.1fr)]">
+          <div>
+            <h4 className="text-sm font-semibold text-slate-900">状态</h4>
+            <div className="mt-3">
+              <MoodPicker
+                value={displayRecord.moodId}
+                onChange={setMood}
+                emptyLabel="选一个代表这一天的状态吧"
+              />
+            </div>
+          </div>
+
+          <div>
+            <h4 className="text-sm font-semibold text-slate-900">自评</h4>
+            <p className="mt-1 text-sm leading-6 text-slate-500">
+              {isSelectedFuture ? "未来日期暂不评分，到当天后再填写。" : "点击星星选择分数，可随时修改。"}
+            </p>
+            <div className="mt-3 overflow-visible">
+              {isSelectedFuture ? (
+                <StarRating value={null} readOnly />
+              ) : (
+                <StarRating value={displayRecord.rating} onChange={setRating} />
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
+        <section className="panel panel-glow-cool panel-interactive h-full">
+          <div className="flex items-start gap-3">
+            <div className="icon-tile">
+              <ListChecks className="h-5 w-5" aria-hidden />
+            </div>
+            <div>
+              <h3 className="section-title">待办任务</h3>
+              <p className="section-copy">补充任务，或更新完成情况。</p>
+            </div>
+          </div>
+          <div className="mt-5">
+            <TaskList
+              tasks={displayRecord.tasks}
+              onAddTask={addTask}
+              onToggleTask={toggleTask}
+              onUpdateTaskTitle={updateTaskTitle}
+              onPinTask={pinTask}
+              onReorderTasks={reorderTasks}
+              onDeleteTask={deleteTask}
+              emptyText="这一天还没有任务。可以补充一个当时的待办或结果。"
+            />
+          </div>
+        </section>
+
+        <section className="panel panel-glow-warm panel-interactive h-full">
+          <div className="flex items-start gap-3">
+            <div className="icon-tile">
+              <NotebookText className="h-5 w-5" aria-hidden />
+            </div>
+            <div>
+              <h3 className="section-title">当日记录</h3>
+              <p className="section-copy">沉淀这一天的关键进展、感受或复盘。</p>
+            </div>
+          </div>
+          <div className="mt-5">
+            <DailyNote
+              value={displayRecord.note}
+              onChange={setNote}
+              placeholder="写下这一天想留下的内容"
+              ariaLabel="当日记录"
+            />
+          </div>
+        </section>
+      </div>
+    </section>
+  ) : null;
 
   return (
     <main className="page-shell">
@@ -220,9 +313,9 @@ const HistoryPage: FC = () => {
             {monthTitle}
           </div>
         </div>
-        {dataError !== null && (
+        {dataError !== null ? (
           <p className="mt-3 text-sm font-medium text-rose-600">{dataError}</p>
-        )}
+        ) : null}
       </header>
 
       <header className="page-header hidden lg:flex">
@@ -236,9 +329,12 @@ const HistoryPage: FC = () => {
               <h1 className="page-title">历史记录</h1>
             </div>
           </div>
-          <QuoteOfTheDay variant="history" className="mt-3 max-w-3xl" />
-          {dataError !== null && (
+          {dataError !== null ? (
             <p className="mt-3 text-sm font-medium text-rose-600">{dataError}</p>
+          ) : (
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-500">
+              点击日历中的任意一天，查看并编辑那天的打卡、状态、任务和记录。
+            </p>
           )}
         </div>
         <div className="rounded-2xl border border-slate-200/70 bg-white px-4 py-3 text-sm font-semibold text-slate-600 shadow-sm">
@@ -248,24 +344,31 @@ const HistoryPage: FC = () => {
 
       <div className="mt-4 flex flex-col gap-6 lg:mt-8 lg:grid lg:grid-cols-5 lg:gap-8">
         <section className="panel panel-glow-cool panel-interactive lg:sticky lg:top-20 lg:col-span-2 lg:self-start">
-          <div className="mb-6 flex items-center justify-between">
-            <button
-              type="button"
-              onClick={handlePrevMonth}
-              className="icon-button"
-              aria-label="上一个月"
-            >
-              <ChevronLeft className="h-5 w-5" aria-hidden />
-            </button>
-            <h2 className="section-title">{monthTitle}</h2>
-            <button
-              type="button"
-              onClick={handleNextMonth}
-              className="icon-button"
-              aria-label="下一个月"
-            >
-              <ChevronRight className="h-5 w-5" aria-hidden />
-            </button>
+          <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={handlePrevMonth}
+                className="icon-button"
+                aria-label="上一个月"
+              >
+                <ChevronLeft className="h-5 w-5" aria-hidden />
+              </button>
+              <h2 className="section-title min-w-28 text-center">{monthTitle}</h2>
+              <button
+                type="button"
+                onClick={handleNextMonth}
+                className="icon-button"
+                aria-label="下一个月"
+              >
+                <ChevronRight className="h-5 w-5" aria-hidden />
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">
+              <CircleCheck className="h-5 w-5" aria-hidden />
+              本月打卡 {monthCheckinCount} 天
+            </div>
           </div>
 
           <div className="grid grid-cols-7 gap-1 text-center text-xs font-semibold uppercase text-slate-400">
@@ -283,10 +386,10 @@ const HistoryPage: FC = () => {
               }
 
               const dateStr = formatDateString(year, monthIndex, day);
-              const stored = dateStr in allRecords;
-              const rec = stored ? allRecords[dateStr] : undefined;
-              const rating = rec?.rating ?? null;
-              const moodOption = rec?.moodId ? getMoodById(rec.moodId) : undefined;
+              const monthRecord = allRecords[dateStr];
+              const stored = hasSavedContent(monthRecord);
+              const checkedIn = monthRecord?.dailyCheckinDone === true;
+              const moodOption = monthRecord?.moodId ? getMoodById(monthRecord.moodId) : undefined;
               const isToday = dateStr === todayStr;
               const isSelected = selectedDateStr === dateStr;
 
@@ -297,26 +400,24 @@ const HistoryPage: FC = () => {
                   onClick={() => handlePickDay(day)}
                   className={getCalendarDayButtonClass({
                     stored,
-                    rating,
+                    checkedIn,
                     isSelected,
                     isToday,
                   })}
-                  aria-label={`${dateStr}，${stored ? "有记录" : "无记录"}`}
+                  aria-label={`${dateStr}，${checkedIn ? "已打卡" : stored ? "有记录" : "无记录"}`}
                   aria-pressed={isSelected}
                 >
-                  <span className={`font-semibold ${isSelected ? "text-white" : "text-slate-900"}`}>
+                  <span className={`font-semibold ${isSelected ? "text-white" : ""}`}>
                     {day}
                   </span>
-                  {stored && moodOption ? (
+                  {checkedIn ? (
+                    <CircleCheck className="h-4 w-4" aria-hidden />
+                  ) : stored && moodOption ? (
                     <span className="text-base leading-none" aria-hidden title={moodOption.label}>
                       {moodOption.emoji}
                     </span>
                   ) : stored ? (
-                    <span
-                      className="h-1.5 w-1.5 rounded-full bg-amber-400"
-                      aria-hidden
-                      title="有记录"
-                    />
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400" aria-hidden />
                   ) : null}
                 </button>
               );
@@ -342,158 +443,12 @@ const HistoryPage: FC = () => {
                 <CalendarRange className="h-8 w-8" strokeWidth={1.25} aria-hidden />
               </div>
               <p className="mt-5 max-w-sm text-sm leading-6 text-slate-500">
-                在日历里选择一天，查看这一天的状态评分、待办任务和记录。
+                在日历里选择一天，查看并编辑这一天的状态、待办任务和记录。
               </p>
             </div>
-          ) : displayRecord ? (
-            <section className="space-y-6">
-              <div className="panel">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0">
-                    <h2 className="text-2xl font-bold text-slate-950">
-                      {formatDisplayDate(selectedDateStr)}
-                    </h2>
-                    <p className="mt-2 text-sm text-slate-500">
-                      {selectedDateStr in allRecords
-                        ? `已完成 ${taskCompleted} / ${taskTotal} 项任务`
-                        : "这一天还没有保存过内容。"}
-                    </p>
-                  </div>
-                  {needsOldDateConfirm && (
-                    <button
-                      type="button"
-                      onClick={() => setConfirmOldEditOpen(true)}
-                      className="btn-primary px-4 py-2"
-                    >
-                      <Pencil className="h-5 w-5 shrink-0" aria-hidden />
-                      编辑此日记录
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <section className="panel panel-glow panel-interactive overflow-visible">
-                <div className="flex items-start gap-3">
-                  <div className="icon-tile">
-                    <Sparkles className="h-5 w-5" aria-hidden />
-                  </div>
-                  <div className="min-w-0">
-                    <h3 className="section-title">状态与评分</h3>
-                    <p className="section-copy">
-                      一眼查看这一天的状态，也能在这里调整评分。
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mt-5 grid gap-6 xl:grid-cols-[minmax(0,0.9fr)_minmax(22rem,1.1fr)]">
-                  <div>
-                    <h4 className="text-sm font-semibold text-slate-900">状态</h4>
-                    <div className="mt-3">
-                      <MoodPicker
-                        value={displayRecord.moodId}
-                        onChange={canEditSelectedDate ? setMood : undefined}
-                        readOnly={!canEditSelectedDate}
-                        emptyLabel="选一个代表这一天的状态吧"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <h4 className="text-sm font-semibold text-slate-900">自评</h4>
-                    <p className="mt-1 text-sm leading-6 text-slate-500">
-                      {isSelectedFuture
-                        ? "未来日期暂不评分，到当天后再填写。"
-                        : canEditSelectedDate
-                          ? "点击星星选择分数，可随时修改。"
-                          : "这一天的评分现在处于只读状态。"}
-                    </p>
-                    <div className="mt-3 overflow-visible">
-                      {isSelectedFuture ? (
-                        <StarRating value={null} readOnly />
-                      ) : (
-                        <StarRating
-                          value={displayRecord.rating}
-                          onChange={canEditSelectedDate ? setRating : undefined}
-                          readOnly={!canEditSelectedDate}
-                        />
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
-                <section className="panel panel-glow-cool panel-interactive h-full">
-                  <div className="flex items-start gap-3">
-                    <div className="icon-tile">
-                      <ListChecks className="h-5 w-5" aria-hidden />
-                    </div>
-                    <div>
-                      <h3 className="section-title">待办任务</h3>
-                      <p className="section-copy">
-                        {canEditSelectedDate
-                          ? "补充任务，或更新完成情况。"
-                          : `已完成 ${taskCompleted} / ${taskTotal} 项。`}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="mt-5">
-                    {canEditSelectedDate ? (
-                      <TaskList
-                        tasks={displayRecord.tasks}
-                        onAddTask={addTask}
-                        onToggleTask={toggleTask}
-                        onUpdateTaskTitle={updateTaskTitle}
-                        onPinTask={pinTask}
-                        onReorderTasks={reorderTasks}
-                        onDeleteTask={deleteTask}
-                        emptyText="这一天还没有任务。可以补充一个当时的待办或结果。"
-                      />
-                    ) : (
-                      <TaskSummaryList tasks={displayRecord.tasks} />
-                    )}
-                  </div>
-                </section>
-
-                <section className="panel panel-glow-warm panel-interactive h-full">
-                  <div className="flex items-start gap-3">
-                    <div className="icon-tile">
-                      <NotebookText className="h-5 w-5" aria-hidden />
-                    </div>
-                    <div>
-                      <h3 className="section-title">当日记录</h3>
-                      <p className="section-copy">
-                        {canEditSelectedDate
-                          ? "沉淀这一天的关键进展、感受或复盘。"
-                          : "这一天的记录当前只读。"}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="mt-5">
-                    <DailyNote
-                      value={displayRecord.note}
-                      onChange={canEditSelectedDate ? setNote : undefined}
-                      readOnly={!canEditSelectedDate}
-                      placeholder="写下这一天想留下的内容"
-                      ariaLabel="当日记录"
-                    />
-                  </div>
-                </section>
-              </div>
-            </section>
-          ) : null}
+          ) : dateEditor}
         </div>
       </div>
-
-      <ConfirmDialog
-        open={confirmOldEditOpen}
-        title="确认编辑"
-        message="确定要修改这一天的记录吗？"
-        confirmLabel="确定"
-        cancelLabel="取消"
-        onConfirm={handleConfirmOldEdit}
-        onCancel={() => setConfirmOldEditOpen(false)}
-      />
 
       <MobileBottomSheet
         open={mobileDetailOpen && selectedDateStr !== null}
@@ -511,16 +466,26 @@ const HistoryPage: FC = () => {
           </p>
         ) : (
           <div className="space-y-5">
-            {needsOldDateConfirm ? (
-              <button
-                type="button"
-                onClick={() => setConfirmOldEditOpen(true)}
-                className="btn-primary w-full"
-              >
-                <Pencil className="h-5 w-5 shrink-0" aria-hidden />
-                编辑此日记录
-              </button>
-            ) : null}
+            <button
+              type="button"
+              className={`flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold shadow-sm ${
+                checkinDone
+                  ? "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100"
+                  : canCheckinSelectedDate
+                    ? "bg-cyan-50 text-[#0b8f99] ring-1 ring-cyan-100"
+                    : "bg-slate-50 text-slate-400 ring-1 ring-slate-200"
+              }`}
+              onClick={() => {
+                if (canCheckinSelectedDate) {
+                  setDailyCheckinDone(!checkinDone);
+                }
+              }}
+              disabled={!canCheckinSelectedDate}
+              aria-pressed={checkinDone}
+            >
+              <CircleCheck className="h-5 w-5" aria-hidden />
+              {checkinDone ? "已打卡" : isSelectedFuture ? "未来日期暂不打卡" : "完成打卡"}
+            </button>
 
             <section className="rounded-2xl border border-slate-200/70 bg-slate-50/80 p-4">
               <div className="flex items-center gap-3">
@@ -530,16 +495,15 @@ const HistoryPage: FC = () => {
               <div className="mt-4">
                 <MoodPicker
                   value={displayRecord.moodId}
-                  onChange={canEditSelectedDate ? setMood : undefined}
-                  readOnly={!canEditSelectedDate}
+                  onChange={setMood}
                   emptyLabel="选一个代表这一天的状态吧"
                 />
               </div>
               <div className="mt-4 overflow-visible">
                 <StarRating
                   value={isSelectedFuture ? null : displayRecord.rating}
-                  onChange={canEditSelectedDate && !isSelectedFuture ? setRating : undefined}
-                  readOnly={!canEditSelectedDate || isSelectedFuture}
+                  onChange={!isSelectedFuture ? setRating : undefined}
+                  readOnly={isSelectedFuture}
                 />
               </div>
             </section>
@@ -549,20 +513,16 @@ const HistoryPage: FC = () => {
                 <ListChecks className="h-5 w-5 text-[#0b8f99]" aria-hidden />
                 <h3 className="text-base font-semibold text-slate-950">待办任务</h3>
               </div>
-              {canEditSelectedDate ? (
-                <TaskList
-                  tasks={displayRecord.tasks}
-                  onAddTask={addTask}
-                  onToggleTask={toggleTask}
-                  onUpdateTaskTitle={updateTaskTitle}
-                  onPinTask={pinTask}
-                  onReorderTasks={reorderTasks}
-                  onDeleteTask={deleteTask}
-                  emptyText="这一天还没有任务。可以补充一个当时的待办或结果。"
-                />
-              ) : (
-                <TaskSummaryList tasks={displayRecord.tasks} />
-              )}
+              <TaskList
+                tasks={displayRecord.tasks}
+                onAddTask={addTask}
+                onToggleTask={toggleTask}
+                onUpdateTaskTitle={updateTaskTitle}
+                onPinTask={pinTask}
+                onReorderTasks={reorderTasks}
+                onDeleteTask={deleteTask}
+                emptyText="这一天还没有任务。可以补充一个当时的待办或结果。"
+              />
             </section>
 
             <section>
@@ -572,8 +532,7 @@ const HistoryPage: FC = () => {
               </div>
               <DailyNote
                 value={displayRecord.note}
-                onChange={canEditSelectedDate ? setNote : undefined}
-                readOnly={!canEditSelectedDate}
+                onChange={setNote}
                 placeholder="写下这一天想留下的内容"
                 ariaLabel="当日记录"
               />

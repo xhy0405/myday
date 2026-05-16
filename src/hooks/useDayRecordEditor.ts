@@ -5,7 +5,7 @@ import { isFutureDateString } from "../utils/dateUtils";
 
 function finalizeRecord(record: DayRecord): DayRecord {
   if (isFutureDateString(record.date)) {
-    return { ...record, rating: null };
+    return { ...record, rating: null, dailyCheckinDone: false };
   }
   return record;
 }
@@ -24,6 +24,7 @@ export interface DayRecordEditor {
   setRating: (rating: number) => void;
   setNote: (note: string) => void;
   setMood: (moodId: string) => void;
+  setDailyCheckinDone: (done: boolean) => void;
 }
 
 export function useDayRecordEditor(date: string | null): DayRecordEditor {
@@ -216,6 +217,10 @@ export function useDayRecordEditor(date: string | null): DayRecordEditor {
     updateRecord((current) => ({ ...current, moodId }));
   };
 
+  const setDailyCheckinDone = (done: boolean): void => {
+    updateRecord((current) => ({ ...current, dailyCheckinDone: done }));
+  };
+
   return {
     record,
     loading,
@@ -230,5 +235,6 @@ export function useDayRecordEditor(date: string | null): DayRecordEditor {
     setRating,
     setNote,
     setMood,
+    setDailyCheckinDone,
   };
 }

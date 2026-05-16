@@ -1,15 +1,11 @@
 import type { DayRecord } from "../types";
+import { addCalendarDays, getTodayString } from "./dateUtils";
 
 /**
- * 「打卡」判定：当天记录里至少有一项实质内容（任务、评分或备注），
- * 用于计算最长连续打卡天数。
+ * 「打卡」判定：以当下页独立打卡按钮为准，避免任务或备注被误算为打卡。
  */
 export function isCheckinRecord(record: DayRecord): boolean {
-  return (
-    record.tasks.length > 0 ||
-    record.rating !== null ||
-    record.note.trim() !== ""
-  );
+  return record.dailyCheckinDone === true;
 }
 
 /**
@@ -51,4 +47,21 @@ export function computeLongestCheckinStreak(all: Record<string, DayRecord>): num
     }
   }
   return best;
+}
+
+/**
+ * 从今天往前计算当前连续打卡天数。
+ */
+export function computeCurrentCheckinStreak(all: Record<string, DayRecord>): number {
+  let cursor = getTodayString();
+  let streak = 0;
+
+  while (true) {
+    const record = all[cursor];
+    if (record === undefined || !isCheckinRecord(record)) {
+      return streak;
+    }
+    streak += 1;
+    cursor = addCalendarDays(cursor, -1);
+  }
 }

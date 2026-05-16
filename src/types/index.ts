@@ -33,6 +33,8 @@ export interface DayRecord {
   note: string;
   /** 当日状态 emoji 的 id（对应 MOOD_OPTIONS 中的某项），未选择时为 null */
   moodId: string | null;
+  /** 当日是否完成打卡 */
+  dailyCheckinDone: boolean;
 }
 
 /**

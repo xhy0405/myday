@@ -1,5 +1,5 @@
 import { type FC, useEffect, useMemo, useState } from "react";
-import { Award, BarChart3, CircleCheck, LineChart } from "lucide-react";
+import { BarChart3, CalendarCheck, CircleCheck, Flame, LineChart } from "lucide-react";
 import {
   Area,
   AreaChart,
@@ -17,7 +17,7 @@ import {
   formatShortAxisDate,
   getDateStringsEndingTodayInclusive,
 } from "../utils/dateUtils";
-import { computeLongestCheckinStreak } from "../utils/statsUtils";
+import { computeCurrentCheckinStreak, computeLongestCheckinStreak } from "../utils/statsUtils";
 import QuoteOfTheDay from "../components/QuoteOfTheDay";
 import DataBackupControls from "../components/DataBackupControls";
 
@@ -43,6 +43,8 @@ interface DailyChartRow {
   rating: number | null;
   /** 任务完成率 0～100；无任务时为 0（柱高为 0） */
   completionRate: number;
+  /** 是否完成当日打卡，图表中用 0 / 1 表示 */
+  checkin: number;
 }
 
 /**
@@ -64,7 +66,7 @@ function getXAxisInterval(pointCount: number): number {
  */
 const StatsPage: FC = () => {
   const [rangeId, setRangeId] = useState<StatsRangeId>("d30");
-  const [mobileChart, setMobileChart] = useState<"rating" | "completion">("rating");
+  const [mobileChart, setMobileChart] = useState<"rating" | "completion" | "checkin">("rating");
   const [mobileBackupOpen, setMobileBackupOpen] = useState<boolean>(false);
   const [dataRevision, setDataRevision] = useState<number>(0);
   const [allRecords, setAllRecords] = useState<Record<string, DayRecord>>({});
@@ -105,7 +107,7 @@ const StatsPage: FC = () => {
   }, [dataRevision]);
 
   /** 一次读 localStorage 并派生图表数据与汇总，避免 getAllRecords 引用每次变化导致 memo 失效 */
-  const { chartRows, averageRating, totalCompletedTasks, longestStreak } =
+  const { chartRows, averageRating, totalCompletedTasks, checkinDays, checkinRate, currentStreak, longestStreak } =
     useMemo(() => {
       const rows: DailyChartRow[] = datesWindow.map((ds) => {
         const r = allRecords[ds];
@@ -116,6 +118,7 @@ const StatsPage: FC = () => {
             label,
             rating: null,
             completionRate: 0,
+            checkin: 0,
           };
         }
         const total = r.tasks.length;
@@ -127,12 +130,14 @@ const StatsPage: FC = () => {
           label,
           rating: r.rating,
           completionRate,
+          checkin: r.dailyCheckinDone ? 1 : 0,
         };
       });
 
       let ratingSum = 0;
       let ratingCount = 0;
       let completedTotal = 0;
+      let checkinTotal = 0;
 
       for (const ds of datesWindow) {
         const r = allRecords[ds];
@@ -144,6 +149,9 @@ const StatsPage: FC = () => {
           ratingCount += 1;
         }
         completedTotal += r.tasks.filter((t) => t.completed).length;
+        if (r.dailyCheckinDone) {
+          checkinTotal += 1;
+        }
       }
 
       const averageRating =
@@ -155,6 +163,9 @@ const StatsPage: FC = () => {
         chartRows: rows,
         averageRating,
         totalCompletedTasks: completedTotal,
+        checkinDays: checkinTotal,
+        checkinRate: datesWindow.length === 0 ? 0 : Math.round((checkinTotal / datesWindow.length) * 100),
+        currentStreak: computeCurrentCheckinStreak(allRecords),
         longestStreak: computeLongestCheckinStreak(allRecords),
       };
     }, [allRecords, datesWindow]);
@@ -211,11 +222,16 @@ const StatsPage: FC = () => {
           </div>
         </header>
 
-        <section className="mt-4 grid grid-cols-3 gap-2">
+        <section className="mt-4 grid grid-cols-4 gap-2">
           <div className="mobile-metric-tile">
             <LineChart className="h-4 w-4 text-[#10aab2]" aria-hidden />
             <span>平均</span>
             <strong>{averageRating === null ? "—" : averageRating}</strong>
+          </div>
+          <div className="mobile-metric-tile">
+            <CalendarCheck className="h-4 w-4 text-emerald-600" aria-hidden />
+            <span>打卡</span>
+            <strong>{checkinDays}</strong>
           </div>
           <div className="mobile-metric-tile">
             <CircleCheck className="h-4 w-4 text-emerald-600" aria-hidden />
@@ -223,9 +239,9 @@ const StatsPage: FC = () => {
             <strong>{totalCompletedTasks}</strong>
           </div>
           <div className="mobile-metric-tile">
-            <Award className="h-4 w-4 text-amber-600" aria-hidden />
+            <Flame className="h-4 w-4 text-amber-600" aria-hidden />
             <span>连续</span>
-            <strong>{longestStreak}</strong>
+            <strong>{currentStreak}</strong>
           </div>
         </section>
 
@@ -233,12 +249,16 @@ const StatsPage: FC = () => {
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-bold text-slate-950">
-                {mobileChart === "rating" ? "每日评分趋势" : "每日任务完成率"}
+                {mobileChart === "rating"
+                  ? "每日评分趋势"
+                  : mobileChart === "completion"
+                    ? "每日任务完成率"
+                    : "每日打卡记录"}
               </h2>
               <p className="mt-1 text-sm text-slate-500">{rangeLabel}</p>
             </div>
           </div>
-          <div className="control-shell mb-4 grid grid-cols-2 gap-1">
+          <div className="control-shell mb-4 grid grid-cols-3 gap-1">
             <button
               type="button"
               className={`segmented-button ${
@@ -256,6 +276,15 @@ const StatsPage: FC = () => {
               onClick={() => setMobileChart("completion")}
             >
               完成率
+            </button>
+            <button
+              type="button"
+              className={`segmented-button ${
+                mobileChart === "checkin" ? "segmented-button-active" : "segmented-button-idle"
+              }`}
+              onClick={() => setMobileChart("checkin")}
+            >
+              打卡
             </button>
           </div>
           <div className="h-60 w-full">
@@ -295,7 +324,7 @@ const StatsPage: FC = () => {
                     connectNulls={false}
                   />
                 </AreaChart>
-              ) : (
+              ) : mobileChart === "completion" ? (
                 <BarChart data={chartRows} margin={{ top: 8, right: 6, left: -8, bottom: 0 }}>
                   <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="#e2e8f0" />
                   <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#64748b" }} interval={xAxisInterval} />
@@ -314,6 +343,27 @@ const StatsPage: FC = () => {
                     }}
                   />
                   <Bar dataKey="completionRate" fill="#2fc8c0" radius={[6, 6, 0, 0]} />
+                </BarChart>
+              ) : (
+                <BarChart data={chartRows} margin={{ top: 8, right: 6, left: -8, bottom: 0 }}>
+                  <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#64748b" }} interval={xAxisInterval} />
+                  <YAxis
+                    domain={[0, 1]}
+                    ticks={[0, 1]}
+                    tick={{ fontSize: 10, fill: "#64748b" }}
+                    width={32}
+                    tickFormatter={(v) => (v === 1 ? "已打卡" : "未打卡")}
+                  />
+                  <Tooltip
+                    contentStyle={tooltipStyle}
+                    formatter={(value) => [Number(value) === 1 ? "已打卡" : "未打卡", "打卡"]}
+                    labelFormatter={(_, payload) => {
+                      const row = payload?.[0]?.payload as DailyChartRow | undefined;
+                      return row ? `日期 ${row.date}` : "";
+                    }}
+                  />
+                  <Bar dataKey="checkin" fill="#10b981" radius={[6, 6, 0, 0]} />
                 </BarChart>
               )}
             </ResponsiveContainer>
@@ -392,8 +442,8 @@ const StatsPage: FC = () => {
         </div>
       </header>
 
-      {/* 三张指标卡：参考仪表盘样式——首行图标盒+标题，主数字深色、单位浅色同基线，末行说明小字 */}
-      <section className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-3">
+      {/* 指标卡：首行图标盒+标题，主数字深色、单位浅色同基线，末行说明小字 */}
+      <section className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
         <div className="metric-card panel-glow-cool">
           <div className="flex items-center gap-3">
             <div
@@ -413,6 +463,25 @@ const StatsPage: FC = () => {
             ) : null}
           </div>
           <p className="mt-3 text-sm text-slate-400">{rangeLabel}内有评分的日期</p>
+        </div>
+
+        <div className="metric-card panel-glow-cool">
+          <div className="flex items-center gap-3">
+            <div
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50"
+              aria-hidden
+            >
+              <CalendarCheck className="h-5 w-5 text-emerald-600" />
+            </div>
+            <p className="text-sm font-semibold text-slate-600">打卡天数</p>
+          </div>
+          <div className="mt-5 flex items-baseline gap-1.5">
+            <span className="text-4xl font-bold text-slate-950">
+              {checkinDays}
+            </span>
+            <span className="text-lg font-medium text-slate-400">天</span>
+          </div>
+          <p className="mt-3 text-sm text-slate-400">{rangeLabel}打卡率 {checkinRate}%</p>
         </div>
 
         <div className="metric-card panel-glow">
@@ -440,21 +509,21 @@ const StatsPage: FC = () => {
               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-50"
               aria-hidden
             >
-              <Award className="h-5 w-5 text-amber-600" />
+              <Flame className="h-5 w-5 text-amber-600" />
             </div>
-            <p className="text-sm font-semibold text-slate-600">最长连续打卡</p>
+            <p className="text-sm font-semibold text-slate-600">当前连续打卡</p>
           </div>
           <div className="mt-5 flex items-baseline gap-1.5">
             <span className="text-4xl font-bold text-slate-950">
-              {longestStreak}
+              {currentStreak}
             </span>
             <span className="text-lg font-medium text-slate-400">天</span>
           </div>
-          <p className="mt-3 text-sm text-slate-400">有任务 / 评分 / 备注即算打卡</p>
+          <p className="mt-3 text-sm text-slate-400">历史最长 {longestStreak} 天</p>
         </div>
       </section>
 
-      {/* 宽屏双列图表：评分折线 + 完成率柱状图 */}
+      {/* 宽屏图表：评分折线 + 完成率柱状图 + 打卡柱状图 */}
       <div className="mt-6 flex flex-col gap-6 lg:grid lg:grid-cols-2 lg:gap-6">
         <section className="panel panel-glow-cool panel-interactive">
           <h2 className="section-title">
@@ -546,6 +615,44 @@ const StatsPage: FC = () => {
                 />
                 {/* 柱状图与主色统一，避免高饱和绿 */}
                 <Bar dataKey="completionRate" fill="#2fc8c0" radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </section>
+
+        <section className="panel panel-glow-cool panel-interactive lg:col-span-2">
+          <h2 className="section-title">
+            {rangeLabel} · 每日打卡记录
+          </h2>
+          <div className="mt-6 h-64 w-full sm:h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartRows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid
+                  vertical={false}
+                  strokeDasharray="3 3"
+                  stroke="#e2e8f0"
+                />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 10, fill: "#64748b" }}
+                  interval={xAxisInterval}
+                />
+                <YAxis
+                  domain={[0, 1]}
+                  ticks={[0, 1]}
+                  tick={{ fontSize: 10, fill: "#64748b" }}
+                  width={48}
+                  tickFormatter={(v) => (v === 1 ? "已打卡" : "未打卡")}
+                />
+                <Tooltip
+                  contentStyle={tooltipStyle}
+                  formatter={(value) => [Number(value) === 1 ? "已打卡" : "未打卡", "打卡"]}
+                  labelFormatter={(_, payload) => {
+                    const row = payload?.[0]?.payload as DailyChartRow | undefined;
+                    return row ? `日期 ${row.date}` : "";
+                  }}
+                />
+                <Bar dataKey="checkin" fill="#10b981" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
