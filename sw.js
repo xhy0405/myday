@@ -1,8 +1,8 @@
-const CACHE_NAME = "myday-static-52d99b3f7411";
+const CACHE_NAME = "myday-static-48e44103d92b";
 const PRECACHE_ASSETS = [
   "./",
-  "./assets/index-CtvKKhJ5.css",
-  "./assets/index-DbYNgk_1.js",
+  "./assets/index-CzEq5Bn7.js",
+  "./assets/index-DheA5q6G.css",
   "./index.html",
   "./manifest.webmanifest",
   "./myday-icon-1024-v2.png",
