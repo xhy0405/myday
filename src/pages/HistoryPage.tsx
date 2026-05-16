@@ -2,7 +2,6 @@ import { type FC, useEffect, useMemo, useState } from "react";
 import {
   CalendarDays,
   CalendarRange,
-  CalendarCheck,
   ChevronLeft,
   ChevronRight,
   ListChecks,
@@ -203,7 +202,9 @@ const HistoryPage: FC = () => {
       <section className="panel panel-glow-cool panel-interactive overflow-visible">
         <div className="flex items-start gap-3">
           <div className="icon-tile">
-            <CalendarCheck className="h-5 w-5" aria-hidden />
+            <span className="text-lg leading-none" role="img" aria-label="打卡">
+              ✅
+            </span>
           </div>
           <div className="min-w-0">
             <h3 className="section-title">打卡内容</h3>
@@ -377,7 +378,9 @@ const HistoryPage: FC = () => {
             </div>
 
             <div className="flex items-center gap-2 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">
-              <CalendarCheck className="h-5 w-5" aria-hidden />
+              <span className="text-base leading-none" role="img" aria-label="打卡">
+                ✅
+              </span>
               本月打卡 {monthCheckinCount} 天
             </div>
           </div>
@@ -423,11 +426,13 @@ const HistoryPage: FC = () => {
                   <span className={`font-semibold ${isSelected ? "text-white" : ""}`}>
                     {day}
                   </span>
-                  {checkedIn ? (
-                    <CalendarCheck className="h-4 w-4" aria-hidden />
-                  ) : stored && moodOption ? (
+                  {moodOption ? (
                     <span className="text-base leading-none" aria-hidden title={moodOption.label}>
                       {moodOption.emoji}
+                    </span>
+                  ) : checkedIn ? (
+                    <span className="text-sm leading-none" role="img" aria-label="已打卡">
+                      ✅
                     </span>
                   ) : stored ? (
                     <span className="h-1.5 w-1.5 rounded-full bg-amber-400" aria-hidden />
@@ -481,7 +486,9 @@ const HistoryPage: FC = () => {
           <div className="space-y-5">
             <section>
               <div className="mb-3 flex items-center gap-2">
-                <CalendarCheck className="h-5 w-5 text-[#0b8f99]" aria-hidden />
+                <span className="text-base leading-none" role="img" aria-label="打卡">
+                  ✅
+                </span>
                 <h3 className="text-base font-semibold text-slate-950">打卡内容</h3>
               </div>
               <DailyCheckinList
