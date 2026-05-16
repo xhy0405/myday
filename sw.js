@@ -1,11 +1,20 @@
-const CACHE_NAME = "myday-static-dev";
+const CACHE_NAME = "myday-static-52d99b3f7411";
 const PRECACHE_ASSETS = [
   "./",
+  "./assets/index-CtvKKhJ5.css",
+  "./assets/index-DbYNgk_1.js",
   "./index.html",
   "./manifest.webmanifest",
+  "./myday-icon-1024-v2.png",
+  "./myday-icon-1024.png",
+  "./myday-icon-180-v2.png",
   "./myday-icon-180.png",
+  "./myday-icon-192-v2.png",
   "./myday-icon-192.png",
+  "./myday-icon-512-v2.png",
   "./myday-icon-512.png",
+  "./myday-mark.svg",
+  "./rain-window-bg.png"
 ];
 
 async function cacheAsset(cache, asset) {
