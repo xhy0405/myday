@@ -1,11 +1,12 @@
-import type { DayRecord } from "../types";
-import { addCalendarDays, getTodayString } from "../utils/dateUtils";
+import type { DailyCheckinTemplate, DayRecord } from "../types";
+import { addCalendarDays, compareDateStrings, getTodayString } from "../utils/dateUtils";
 
 const DB_NAME = "myday-db";
 const DB_VERSION = 1;
 const RECORD_STORE_NAME = "records";
 const LEGACY_STORAGE_KEY = "myday-records";
 const MIGRATION_FLAG_KEY = "myday-indexeddb-migrated";
+const CHECKIN_TEMPLATES_KEY = "myday-daily-checkin-templates";
 const DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 function createEmptyRecord(date: string): DayRecord {
@@ -67,6 +68,41 @@ function normalizeDailyCheckins(value: unknown, legacyDone: boolean): DayRecord[
         createdAt:
           typeof checkinValue.createdAt === "string"
             ? checkinValue.createdAt
+            : new Date().toISOString(),
+      },
+    ];
+  });
+}
+
+function normalizeDailyCheckinTemplates(value: unknown): DailyCheckinTemplate[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((templateValue) => {
+    if (!isPlainObject(templateValue) || typeof templateValue.title !== "string") {
+      return [];
+    }
+
+    const title = templateValue.title.trim();
+    const startDate = typeof templateValue.startDate === "string" && DATE_KEY_PATTERN.test(templateValue.startDate)
+      ? templateValue.startDate
+      : getTodayString();
+    if (title === "") {
+      return [];
+    }
+
+    return [
+      {
+        id:
+          typeof templateValue.id === "string" && templateValue.id.trim() !== ""
+            ? templateValue.id
+            : crypto.randomUUID(),
+        title,
+        startDate,
+        createdAt:
+          typeof templateValue.createdAt === "string"
+            ? templateValue.createdAt
             : new Date().toISOString(),
       },
     ];
@@ -156,6 +192,90 @@ function parseLegacyRecords(raw: string | null): Record<string, DayRecord> {
   } catch {
     return {};
   }
+}
+
+function readDailyCheckinTemplates(): DailyCheckinTemplate[] {
+  try {
+    return normalizeDailyCheckinTemplates(JSON.parse(localStorage.getItem(CHECKIN_TEMPLATES_KEY) ?? "[]") as unknown);
+  } catch {
+    return [];
+  }
+}
+
+function writeDailyCheckinTemplates(templates: DailyCheckinTemplate[]): void {
+  localStorage.setItem(CHECKIN_TEMPLATES_KEY, JSON.stringify(templates));
+}
+
+function getApplicableDailyCheckinTemplates(
+  recordDate: string,
+  templates: DailyCheckinTemplate[],
+): DailyCheckinTemplate[] {
+  return templates.filter((template) => compareDateStrings(template.startDate, recordDate) <= 0);
+}
+
+function mergeRecordWithDailyCheckinTemplates(
+  record: DayRecord,
+  templates: DailyCheckinTemplate[],
+): DayRecord {
+  const applicableTemplates = getApplicableDailyCheckinTemplates(record.date, templates);
+  const templateById = new Map(applicableTemplates.map((template) => [template.id, template]));
+  const templateByTitle = new Map(applicableTemplates.map((template) => [template.title.trim().toLowerCase(), template]));
+  const usedTemplateIds = new Set<string>();
+  const nextCheckins = record.dailyCheckins.flatMap((item) => {
+    const titleKey = item.title.trim().toLowerCase();
+    const template = templateById.get(item.id) ?? templateByTitle.get(titleKey);
+    if (template === undefined || usedTemplateIds.has(template.id)) {
+      return [];
+    }
+    usedTemplateIds.add(template.id);
+    return [{ ...item, id: template.id, title: template.title, createdAt: template.createdAt }];
+  });
+
+  for (const template of applicableTemplates) {
+    if (!usedTemplateIds.has(template.id)) {
+      nextCheckins.push({
+        id: template.id,
+        title: template.title,
+        completed: false,
+        createdAt: template.createdAt,
+      });
+    }
+  }
+
+  return {
+    ...record,
+    dailyCheckinDone: nextCheckins.some((item) => item.completed),
+    dailyCheckins: nextCheckins,
+  };
+}
+
+function migrateDailyCheckinTemplatesFromRecords(records: Record<string, DayRecord>): DailyCheckinTemplate[] {
+  const existingTemplates = readDailyCheckinTemplates();
+  if (existingTemplates.length > 0) {
+    return existingTemplates;
+  }
+
+  const templateByTitle = new Map<string, DailyCheckinTemplate>();
+  for (const record of Object.values(records).sort((a, b) => compareDateStrings(a.date, b.date))) {
+    for (const item of record.dailyCheckins) {
+      const titleKey = item.title.trim().toLowerCase();
+      if (titleKey === "" || templateByTitle.has(titleKey)) {
+        continue;
+      }
+      templateByTitle.set(titleKey, {
+        id: item.id,
+        title: item.title,
+        startDate: record.date,
+        createdAt: item.createdAt,
+      });
+    }
+  }
+
+  const templates = Array.from(templateByTitle.values());
+  if (templates.length > 0) {
+    writeDailyCheckinTemplates(templates);
+  }
+  return templates;
 }
 
 function requestToPromise<T>(request: IDBRequest<T>): Promise<T> {
@@ -290,23 +410,72 @@ async function ensureLegacyDataMigrated(): Promise<void> {
 
 export async function getAllRecords(): Promise<Record<string, DayRecord>> {
   await ensureLegacyDataMigrated();
-  return readAllRecordsFromIndexedDb();
+  const records = await readAllRecordsFromIndexedDb();
+  const templates = migrateDailyCheckinTemplatesFromRecords(records);
+
+  return Object.fromEntries(
+    Object.entries(records).map(([date, record]) => [
+      date,
+      mergeRecordWithDailyCheckinTemplates(record, templates),
+    ]),
+  );
 }
 
 export async function getRecord(date: string): Promise<DayRecord> {
-  const all = await getAllRecords();
-  return ensureTodayCarryover(date, all);
+  await ensureLegacyDataMigrated();
+  const all = await readAllRecordsFromIndexedDb();
+  const templates = migrateDailyCheckinTemplatesFromRecords(all);
+  const record = await ensureTodayCarryover(date, all);
+  return mergeRecordWithDailyCheckinTemplates(record, templates);
 }
 
 export async function saveRecord(record: DayRecord): Promise<void> {
+  const nextRecord = {
+    ...record,
+    dailyCheckinDone: record.dailyCheckins.some((item) => item.completed),
+  };
   const db = await openDatabase();
   try {
     const transaction = db.transaction(RECORD_STORE_NAME, "readwrite");
-    transaction.objectStore(RECORD_STORE_NAME).put(record);
+    transaction.objectStore(RECORD_STORE_NAME).put(nextRecord);
     await transactionDone(transaction);
   } finally {
     db.close();
   }
+}
+
+export async function createDailyCheckinTemplate(title: string, startDate: string): Promise<DailyCheckinTemplate> {
+  const trimmedTitle = title.trim();
+  const templates = readDailyCheckinTemplates();
+  const existing = templates.find((template) => template.title.trim().toLowerCase() === trimmedTitle.toLowerCase());
+  if (existing !== undefined) {
+    return existing;
+  }
+
+  const template: DailyCheckinTemplate = {
+    id: crypto.randomUUID(),
+    title: trimmedTitle,
+    startDate,
+    createdAt: new Date().toISOString(),
+  };
+  writeDailyCheckinTemplates([...templates, template]);
+  return template;
+}
+
+export async function updateDailyCheckinTemplate(id: string, title: string): Promise<void> {
+  const trimmedTitle = title.trim();
+  if (trimmedTitle === "") {
+    return;
+  }
+  writeDailyCheckinTemplates(
+    readDailyCheckinTemplates().map((template) =>
+      template.id === id ? { ...template, title: trimmedTitle } : template,
+    ),
+  );
+}
+
+export async function deleteDailyCheckinTemplate(id: string): Promise<void> {
+  writeDailyCheckinTemplates(readDailyCheckinTemplates().filter((template) => template.id !== id));
 }
 
 export async function exportRecordsJson(): Promise<string> {
@@ -316,6 +485,7 @@ export async function exportRecordsJson(): Promise<string> {
       version: 2,
       storage: "indexedDB",
       exportedAt: new Date().toISOString(),
+      checkinTemplates: readDailyCheckinTemplates(),
       records: await getAllRecords(),
     },
     null,
@@ -328,6 +498,9 @@ export async function importRecordsJson(raw: string): Promise<number> {
   const source = isPlainObject(parsed) && "records" in parsed ? parsed.records : parsed;
   const incoming = normalizeRecords(source);
   const current = await getAllRecords();
+  if (isPlainObject(parsed) && "checkinTemplates" in parsed) {
+    writeDailyCheckinTemplates(normalizeDailyCheckinTemplates(parsed.checkinTemplates));
+  }
 
   await writeRecordsToIndexedDb({ ...current, ...incoming });
   return Object.keys(incoming).length;

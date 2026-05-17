@@ -31,6 +31,18 @@ export interface DailyCheckin {
   createdAt: string;
 }
 
+/** 会自动出现在每天记录里的打卡模板 */
+export interface DailyCheckinTemplate {
+  /** 唯一标识，同时作为每日打卡项目 id */
+  id: string;
+  /** 打卡内容，如“学英语” */
+  title: string;
+  /** 从哪一天开始每天出现 */
+  startDate: string;
+  /** 创建时间的 ISO 字符串 */
+  createdAt: string;
+}
+
 /** 每日记录（以 date 为主键的一条「当天快照」） */
 export interface DayRecord {
   /** 日期字符串，格式为 "YYYY-MM-DD"，作为唯一主键 */

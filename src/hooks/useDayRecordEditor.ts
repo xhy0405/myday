@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { getRecord, saveRecord } from "../data/storage";
+import {
+  createDailyCheckinTemplate,
+  deleteDailyCheckinTemplate,
+  getRecord,
+  saveRecord,
+  updateDailyCheckinTemplate,
+} from "../data/storage";
 import type { DayRecord } from "../types";
 import { isFutureDateString } from "../utils/dateUtils";
 
@@ -227,21 +233,34 @@ export function useDayRecordEditor(date: string | null): DayRecordEditor {
 
   const addDailyCheckin = (title: string): void => {
     const trimmedTitle = title.trim();
-    if (trimmedTitle === "") {
+    if (date === null || trimmedTitle === "") {
       return;
     }
-    updateRecord((current) => ({
-      ...current,
-      dailyCheckins: [
-        ...current.dailyCheckins,
-        {
-          id: crypto.randomUUID(),
-          title: trimmedTitle,
-          completed: false,
-          createdAt: new Date().toISOString(),
-        },
-      ],
-    }));
+
+    void (async () => {
+      const template = await createDailyCheckinTemplate(trimmedTitle, date);
+      const current = recordRef.current ?? (await getRecord(date));
+      if (current.dailyCheckins.some((item) => item.id === template.id)) {
+        return;
+      }
+      const next = finalizeRecord({
+        ...current,
+        date,
+        dailyCheckins: [
+          ...current.dailyCheckins,
+          {
+            id: template.id,
+            title: template.title,
+            completed: false,
+            createdAt: template.createdAt,
+          },
+        ],
+      });
+      setCurrentRecord(next);
+      await saveRecord(next);
+    })().catch(() => {
+      setError("保存本地数据失败，请稍后重试。");
+    });
   };
 
   const toggleDailyCheckin = (id: string): void => {
@@ -261,19 +280,29 @@ export function useDayRecordEditor(date: string | null): DayRecordEditor {
     if (trimmedTitle === "") {
       return;
     }
-    updateRecord((current) => ({
-      ...current,
-      dailyCheckins: current.dailyCheckins.map((item) =>
-        item.id === id ? { ...item, title: trimmedTitle } : item,
-      ),
-    }));
+    void (async () => {
+      await updateDailyCheckinTemplate(id, trimmedTitle);
+      updateRecord((current) => ({
+        ...current,
+        dailyCheckins: current.dailyCheckins.map((item) =>
+          item.id === id ? { ...item, title: trimmedTitle } : item,
+        ),
+      }));
+    })().catch(() => {
+      setError("保存本地数据失败，请稍后重试。");
+    });
   };
 
   const deleteDailyCheckin = (id: string): void => {
-    updateRecord((current) => ({
-      ...current,
-      dailyCheckins: current.dailyCheckins.filter((item) => item.id !== id),
-    }));
+    void (async () => {
+      await deleteDailyCheckinTemplate(id);
+      updateRecord((current) => ({
+        ...current,
+        dailyCheckins: current.dailyCheckins.filter((item) => item.id !== id),
+      }));
+    })().catch(() => {
+      setError("保存本地数据失败，请稍后重试。");
+    });
   };
 
   return {
