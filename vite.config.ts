@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 
 function collectPrecacheAssets(directory: string, root = directory): string[] {
@@ -33,6 +33,9 @@ function mydayServiceWorkerPlugin() {
     closeBundle() {
       const distDir = resolve(__dirname, "dist");
       const serviceWorkerPath = resolve(distDir, "sw.js");
+      if (!existsSync(serviceWorkerPath)) {
+        writeFileSync(serviceWorkerPath, readFileSync(resolve(__dirname, "public", "sw.js"), "utf8"));
+      }
       const assets = Array.from(new Set(["./", ...collectPrecacheAssets(distDir)])).sort();
       const versionHash = createHash("sha256");
       assets.forEach((asset) => {

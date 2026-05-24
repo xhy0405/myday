@@ -355,34 +355,32 @@ function createCarryoverTask(sourceDate: string, sourceTask: DayRecord["tasks"][
   };
 }
 
-async function ensureTodayCarryover(date: string, records: Record<string, DayRecord>): Promise<DayRecord> {
-  const today = getTodayString();
+async function ensurePreviousDayCarryover(date: string, records: Record<string, DayRecord>): Promise<DayRecord> {
   const targetRecord = records[date] ?? createEmptyRecord(date);
-
-  if (date !== today) {
-    return targetRecord;
-  }
-
-  const previousDate = addCalendarDays(today, -1);
-  const checkedDates = targetRecord.carryoverCheckedDates ?? [];
-  if (checkedDates.includes(previousDate)) {
-    return targetRecord;
-  }
-
-  const nextCheckedDates = [...checkedDates, previousDate];
-  if (records[date] !== undefined) {
-    const nextRecord = { ...targetRecord, carryoverCheckedDates: nextCheckedDates };
-    records[date] = nextRecord;
-    await saveRecord(nextRecord);
-    return nextRecord;
-  }
-
+  const previousDate = addCalendarDays(date, -1);
   const previousRecord = records[previousDate];
+  const checkedDates = targetRecord.carryoverCheckedDates ?? [];
+
   const carryoverTasks =
     previousRecord?.tasks
       .filter((task) => !task.completed)
+      .filter(
+        (task) =>
+          !targetRecord.tasks.some(
+            (targetTask) =>
+              targetTask.carryoverFromDate === previousDate &&
+              targetTask.carryoverFromTaskId === task.id,
+          ),
+      )
       .map((task) => createCarryoverTask(previousDate, task)) ?? [];
 
+  if (carryoverTasks.length === 0 && checkedDates.includes(previousDate)) {
+    return targetRecord;
+  }
+
+  const nextCheckedDates = checkedDates.includes(previousDate)
+    ? checkedDates
+    : [...checkedDates, previousDate];
   const nextRecord = {
     ...targetRecord,
     carryoverCheckedDates: nextCheckedDates,
@@ -425,7 +423,7 @@ export async function getRecord(date: string): Promise<DayRecord> {
   await ensureLegacyDataMigrated();
   const all = await readAllRecordsFromIndexedDb();
   const templates = migrateDailyCheckinTemplatesFromRecords(all);
-  const record = await ensureTodayCarryover(date, all);
+  const record = await ensurePreviousDayCarryover(date, all);
   return mergeRecordWithDailyCheckinTemplates(record, templates);
 }
 
